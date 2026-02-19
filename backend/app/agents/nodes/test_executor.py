@@ -7,7 +7,7 @@ and returns a normalised, structured result.
 
 import logging
 
-from app.integrations.docker_sandbox import run_pytest
+from app.core.docker_sandbox import run_pytest_in_docker
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def execute_tests(repo_path: str) -> dict:
     """
     logger.info("Executing tests for repo: %s", repo_path)
 
-    raw = run_pytest(repo_path)
+    raw = run_pytest_in_docker(repo_path)
 
     passed = raw.get("success", False)
     logs = (raw.get("stdout") or "").strip()
