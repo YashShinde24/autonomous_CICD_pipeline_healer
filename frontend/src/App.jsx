@@ -112,7 +112,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  
+
   // Dashboard state
   const [systemStatus, setSystemStatus] = useState(null)
   const [stats, setStats] = useState(null)
@@ -137,7 +137,7 @@ function App() {
   useEffect(() => {
     if (updates.length > 0) {
       const latest = updates[updates.length - 1]
-      
+
       if (latest.type === 'pipeline_update') {
         setRunProgress({
           status: latest.status,
@@ -199,7 +199,7 @@ function App() {
         api.getActions(),
         api.getLatency()
       ])
-      
+
       setSystemStatus(statusData)
       setStats(statsData)
       setRecentActions(actionsData)
@@ -300,7 +300,7 @@ function App() {
             <h1>NEURAL OPS</h1>
             <p className="login-subtitle">DevOps AI Command Center</p>
           </div>
-          
+
           {message && <div className="message success">{message}</div>}
           {error && <div className="message error">{error}</div>}
 
@@ -343,7 +343,7 @@ function App() {
           </div>
           <span className="logo-text">NEURAL OPS</span>
         </div>
-        
+
         <nav className="sidebar-nav">
           <a className={`nav-item ${activeView === 'overview' ? 'active' : ''}`} onClick={() => setActiveView('overview')}>
             <span className="material-symbols-outlined">grid_view</span>
@@ -366,7 +366,7 @@ function App() {
             <span>Settings</span>
           </a>
         </nav>
-        
+
         <div className="sidebar-footer">
           <div className="node-region glass-card">
             <p className="label">NODE REGION</p>
@@ -386,13 +386,13 @@ function App() {
             <span className="material-symbols-outlined search-icon">search</span>
             <input type="text" placeholder="Search clusters, logs, or neural tasks..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
-          
+
           <div className="header-right">
             <div className="status-badge">
               <span className="pulse-dot"></span>
               <span>System Online</span>
             </div>
-            
+
             <div className="user-section">
               <div className="user-info">
                 <p className="user-name">{session.user.email?.split('@')[0] || 'User'}</p>
@@ -507,11 +507,11 @@ function App() {
                     {runProgress.status}
                   </div>
                 </div>
-                
+
                 <div className="progress-bar-container">
                   <div className="progress-bar-fill" style={{ width: `${runProgress.progress}%` }}></div>
                 </div>
-                
+
                 <div className="progress-info">
                   <span className="progress-step">{runProgress.current_step}</span>
                   <span className="progress-percent">{Math.round(runProgress.progress)}%</span>
@@ -559,7 +559,7 @@ function App() {
                   <span className="material-symbols-outlined success-icon">check_circle</span>
                   <h3>Pipeline Completed</h3>
                 </div>
-                
+
                 <div className="results-grid">
                   <div className="result-item">
                     <span className="result-label">Score</span>
@@ -619,7 +619,7 @@ function App() {
                     <div key={region.name} className="latency-item">
                       <div className="latency-header">
                         <span className="region-name">{region.name}</span>
-                        <span className="lat className={`latency-value ${region.name.includes('WEST') ? 'secondary' : 'primary'}`}>{region.latency}ms</span>
+                        <span className={`latency-value ${region.name.includes('WEST') ? 'secondary' : 'primary'}`}>{region.latency}ms</span>
                       </div>
                       <div className="latency-bar">
                         <div className={`latency-fill ${region.name.includes('WEST') ? 'secondary' : 'primary'}`} style={{ width: `${region.percentage}%` }}></div>
@@ -698,12 +698,12 @@ function App() {
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <form onSubmit={handleStartPipeline}>
               <div className="form-group">
                 <label>Repository URL</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="https://github.com/owner/repo"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
@@ -712,8 +712,8 @@ function App() {
               </div>
               <div className="form-group">
                 <label>Branch</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="main"
                   value={branch}
                   onChange={(e) => setBranch(e.target.value)}
