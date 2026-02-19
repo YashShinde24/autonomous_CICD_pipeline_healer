@@ -18,3 +18,16 @@ New CI error:
 {new_error}
 """
     return call_groq(SYSTEM_PROMPT, user_prompt)
+
+
+def run(state):
+    """Reflect on failed fix attempts and generate corrections."""
+    classified_failure = state.get("classified_failures", [""])[0]
+    previous_patch = state.get("applied_fixes", [""])[0]
+    new_error = state.get("test_errors", "")
+    
+    correction = reflect(classified_failure, previous_patch, new_error)
+    
+    state["reflection"] = correction
+    state["logs"].append("Reflection agent generated correction")
+    return state
