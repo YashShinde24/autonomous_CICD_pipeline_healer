@@ -28,3 +28,21 @@ Classify this failure and generate formatted output.
 
     raw = call_groq(SYSTEM_PROMPT, user_prompt)
     return reconstruct_format(raw)
+
+
+def run(state):
+    """Classify failures in the state and update classified_failures."""
+    failures = state.get("failures", [])
+    classified = []
+    
+    for failure in failures:
+        result = classify_failure(
+            failure.get("file", ""),
+            failure.get("line", 0),
+            failure.get("error", "")
+        )
+        classified.append(result)
+    
+    state["classified_failures"] = classified
+    state["logs"].append(f"Classified {len(classified)} failures")
+    return state
