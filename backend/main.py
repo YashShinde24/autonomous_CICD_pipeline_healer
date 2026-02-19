@@ -150,7 +150,7 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             # Handle client messages if needed
             message = json.loads(data)
-            if message.get("type") == "subscribe"):
+            if message.get("type") == "subscribe":
                 run_id = message.get("run_id")
                 if run_id:
                     if run_id not in websocket_connections:
