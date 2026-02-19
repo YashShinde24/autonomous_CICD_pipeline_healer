@@ -48,3 +48,18 @@ def execute_tests(repo_path: str) -> dict:
         "logs": logs,
         "errors": errors,
     }
+
+
+def run(state):
+    """Execute tests and update state with results."""
+    repo_path = state.get("repo_path", ".")
+    
+    result = execute_tests(repo_path)
+    
+    state["passed"] = result["passed"]
+    state["logs"] = result["logs"]
+    state["errors"] = result["errors"]
+    state["test_errors"] = result["errors"]
+    state["logs"].append(f"Tests executed: {'passed' if result['passed'] else 'failed'}")
+    
+    return state

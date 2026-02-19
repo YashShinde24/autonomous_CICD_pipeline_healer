@@ -37,7 +37,7 @@ class RetryManager:
         Returns:
             True if a retry should be performed, False otherwise.
         """
-        if conclusion != "failure":
+        if conclusion is None or conclusion != "failure":
             logger.info(
                 "No retry needed – conclusion is '%s'.", conclusion
             )

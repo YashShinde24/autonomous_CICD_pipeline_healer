@@ -7,7 +7,9 @@ Fetches the latest workflow run status and returns a normalised result.
 
 import logging
 
+
 from app.integrations.ci_provider import CIProvider, CIProviderError
+from app.core.database import create_ci_timeline, SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -54,3 +56,32 @@ def monitor_ci(ci_provider: CIProvider) -> dict:
         "success": success,
         "raw_status": raw,
     }
+
+def run(state):
+    """Monitor CI status and save timeline to database."""
+    ci_status = state.get("ci_status", "")
+    
+    if ci_status == "READY_FOR_COMMIT":
+        state["ci_status"] = "PASSED"
+
+    # Save CI timeline to database
+    run_id = state.get("run_id")
+    iteration = state.get("iteration", 0)
+    if run_id:
+        db = SessionLocal()
+        try:
+            create_ci_timeline(
+                db=db,
+                run_id=run_id,
+                iteration_number=iteration,
+                status="PASSED" if state.get("ci_status") == "PASSED" else "FAILED"
+            )
+        except Exception as e:
+            logger.error("Failed to save CI timeline: %s", e)
+            db.rollback()
+        finally:
+            db.close()
+
+    state["logs"].append("CI monitored")
+
+    return state
