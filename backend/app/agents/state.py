@@ -1,4 +1,4 @@
-from typing import TypedDict, List
+from typing import TypedDict, List, Optional
 from datetime import datetime
 
 class AgentState(TypedDict):
@@ -27,3 +27,4 @@ class AgentState(TypedDict):
     
     # Results
     score: int
+    final_status: Optional[str]
