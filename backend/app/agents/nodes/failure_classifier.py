@@ -26,14 +26,20 @@ Error Message: {error_message}
 Classify this failure and generate formatted output.
 """
 
-    raw = call_groq(SYSTEM_PROMPT, user_prompt)
-    return reconstruct_format(raw)
+    try:
+        raw = call_groq(SYSTEM_PROMPT, user_prompt)
+        return reconstruct_format(raw)
+    except Exception:
+        # When AI classifier is unavailable or returns unexpected format,
+        # fall back to a safe, conservative classification string.
+        return f"UNKNOWN error in {file_path} line {line_number} → Fix: manual review required"
 
 
 def run(state):
     """Classify failures in the state and update classified_failures."""
     failures = state.get("failures", [])
     classified = []
+    logs = list(state.get("logs") or [])
     
     for failure in failures:
         result = classify_failure(
@@ -44,5 +50,6 @@ def run(state):
         classified.append(result)
     
     state["classified_failures"] = classified
-    state["logs"].append(f"Classified {len(classified)} failures")
+    logs.append(f"Classified {len(classified)} failures")
+    state["logs"] = logs
     return state

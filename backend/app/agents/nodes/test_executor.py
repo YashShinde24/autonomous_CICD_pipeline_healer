@@ -55,11 +55,14 @@ def run(state):
     repo_path = state.get("repo_path", ".")
     
     result = execute_tests(repo_path)
-    
+
+    logs = list(state.get("logs") or [])
+
     state["passed"] = result["passed"]
-    state["logs"] = result["logs"]
+    state["test_output"] = result["logs"]
     state["errors"] = result["errors"]
     state["test_errors"] = result["errors"]
-    state["logs"].append(f"Tests executed: {'passed' if result['passed'] else 'failed'}")
+    logs.append(f"Tests executed: {'passed' if result['passed'] else 'failed'}")
+    state["logs"] = logs
     
     return state

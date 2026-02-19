@@ -8,6 +8,7 @@ class AgentState(TypedDict):
     
     # Repository info
     repo_url: str
+    repo_path: Optional[str]
     team_name: str
     leader_name: str
     branch_name: str

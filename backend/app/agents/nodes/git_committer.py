@@ -37,6 +37,7 @@ def commit_fix(repo_path: str, message: str) -> None:
         BranchProtectionError:  If the current branch is ``main`` or ``master``.
         GitCommandError:        On any underlying git failure.
     """
+    from datetime import datetime
     client = GitHubClient(repo_path)
     repo = client.repo
 
@@ -47,6 +48,19 @@ def commit_fix(repo_path: str, message: str) -> None:
         raise NoChangesDetectedError(msg)
 
     logger.info("Changes detected – preparing commit.")
+
+    # ── Auto-create feature branch if on protected branch ────────────
+    current_branch = repo.active_branch.name
+    if current_branch in {"main", "master"}:
+        # Create a unique feature branch name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        feature_branch = f"ai-fix-{timestamp}"
+        try:
+            client.create_branch(feature_branch)
+            logger.info(f"Created feature branch '{feature_branch}' to bypass protected main")
+        except Exception as e:
+            logger.error(f"Failed to create feature branch: {e}")
+            raise
 
     # commit_all already enforces branch protection and adds [AI-AGENT] prefix
     client.commit_all(message)
@@ -61,11 +75,13 @@ def run(state):
     """Commit and push fixes to the repository, and save fix records to database."""
     repo_path = state.get("repo_path", ".")
     message = state.get("commit_message", "Automated fix applied")
+    logs = list(state.get("logs") or [])
     
     try:
         commit_fix(repo_path, message)
         state["commit_count"] = state.get("commit_count", 0) + 1
-        state["logs"].append("Changes committed and pushed")
+        logs.append("Changes committed and pushed")
+        state["logs"] = logs
         
         # Save fix records to database
         run_id = state.get("run_id")
@@ -107,7 +123,8 @@ def run(state):
                 db.close()
                 
     except Exception as e:
-        state["logs"].append(f"Commit failed: {str(e)}")
+        logs.append(f"Commit failed: {str(e)}")
+        state["logs"] = logs
         
         # Save failed fix to database
         run_id = state.get("run_id")

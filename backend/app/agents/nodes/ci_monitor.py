@@ -60,6 +60,7 @@ def monitor_ci(ci_provider: CIProvider) -> dict:
 def run(state):
     """Monitor CI status and save timeline to database."""
     ci_status = state.get("ci_status", "")
+    logs = list(state.get("logs") or [])
     
     if ci_status == "READY_FOR_COMMIT":
         state["ci_status"] = "PASSED"
@@ -82,6 +83,7 @@ def run(state):
         finally:
             db.close()
 
-    state["logs"].append("CI monitored")
+    logs.append("CI monitored")
+    state["logs"] = logs
 
     return state

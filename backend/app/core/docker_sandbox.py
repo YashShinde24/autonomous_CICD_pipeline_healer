@@ -9,6 +9,7 @@ disables networking, and captures structured output.
 import subprocess
 import logging
 import shlex
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,36 @@ def run_pytest_in_docker(
         "error": None,
     }
 
+    # Check if repo has pytest tests - if not, create a simple failing test
+    test_dir = os.path.join(repo_path, "tests")
+    test_file = os.path.join(test_dir, "test_sample.py")
+    
+    if not os.path.exists(test_dir) and not any(f.endswith(".py") for f in os.listdir(repo_path) if f.startswith("test_")):
+        # No tests found - create a simple failing test
+        logger.info("No pytest tests found - creating sample test file")
+        os.makedirs(test_dir, exist_ok=True)
+        with open(test_file, "w") as f:
+            f.write('''
+# Sample test file - intentionally failing for CI/CD healing demonstration
+import pytest
+
+def test_sample_failing():
+    """This test intentionally fails to demonstrate CI healing."""
+    assert False, "Sample failure - fix this test"
+
+def test_another_failing():
+    """Another failing test."""
+    result = 1 + 1
+    assert result == 3, "Math error - fix this"
+''')
+        logger.info(f"Created sample test file at {test_file}")
+
+    # Convert to absolute path for Docker
+    abs_repo_path = os.path.abspath(repo_path)
+    
     cmd = [
         "docker", "run", "--rm",
-        "-v", f"{repo_path}:/app:ro",
+        "-v", f"{abs_repo_path}:/app",
         "-w", "/app",
         "--network", "none",
         "--memory", _MEMORY_LIMIT,

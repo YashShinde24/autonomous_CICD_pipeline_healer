@@ -6,16 +6,24 @@ With WebSocket support for real-time pipeline updates
 import os
 import asyncio
 import json
+import logging
 import threading
 from datetime import datetime
 from uuid import uuid4
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+# Setup basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# LangGraph import
+from app.agents.graph import compile as compile_graph
 
 load_dotenv()
 
@@ -34,7 +42,7 @@ app = FastAPI(title="DevOps AI Command Center API", version="1.0.0")
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:3000", "http://localhost:8004", "http://localhost:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -158,9 +166,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     websocket_connections[run_id].append(websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        for run_id, conns in list(websocket_connections.items()):
+            if websocket in conns:
+                conns.remove(websocket)
+            if not conns:
+                websocket_connections.pop(run_id, None)
     except Exception as e:
         print(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+        for run_id, conns in list(websocket_connections.items()):
+            if websocket in conns:
+                conns.remove(websocket)
+            if not conns:
+                websocket_connections.pop(run_id, None)
 
 
 # ============== API Endpoints ==============
@@ -341,104 +359,157 @@ async def get_pipeline_status(run_id: str):
 # ============== Background Pipeline Execution ==============
 
 async def run_pipeline(run_id: str, repo_url: str, branch: str):
-    """Execute the CI/CD healing pipeline in background"""
+    """Execute the CI/CD healing pipeline using real LangGraph execution"""
     start_time = datetime.utcnow()
     
     try:
         # Update status to RUNNING
         pipeline_runs[run_id]["status"] = "RUNNING"
         
-        # Simulate pipeline steps
-        steps = [
-            ("Cloning repository...", 10),
-            ("Analyzing CI failures...", 25),
-            ("Classifying bugs...", 40),
-            ("Generating fixes...", 55),
-            ("Validating fixes...", 70),
-            ("Running tests...", 85),
-            ("Committing changes...", 95),
-            ("Finalizing...", 100),
-        ]
+        # Compile and run the real graph
+        try:
+            graph = compile_graph()
+        except Exception as e:
+            logger.error(f"Failed to compile graph: {e}")
+            pipeline_runs[run_id]["status"] = "FAILED"
+            pipeline_runs[run_id]["current_step"] = f"Graph compilation failed: {str(e)}"
+            return
         
-        # Simulated failures for demo
-        simulated_failures = [
-            {"file": "src/app.py", "line": 42, "type": "SYNTAX", "message": "IndentationError"},
-            {"file": "tests/test_api.py", "line": 15, "type": "LOGIC", "message": "Assertion failed"},
-        ]
+        # Provide complete initial state with all required fields
+        initial_state = {
+            "run_id": run_id,
+            "repo_url": repo_url,
+            "repo_path": None,
+            "team_id": "default",
+            "team_name": "default_team",
+            "leader_name": "admin",
+            "branch_name": branch,
+            "iteration": 0,
+            "max_retries": 3,
+            "failures": [],
+            "classified_failures": [],
+            "applied_fixes": [],
+            "ci_status": "pending",
+            "logs": [f"Pipeline started for {repo_url} on branch {branch}"],
+            "start_time": datetime.utcnow().isoformat(),
+            "end_time": "",
+            "score": 0,
+            "final_status": None
+        }
         
-        simulated_fixes = [
-            {"file": "src/app.py", "line": 42, "type": "SYNTAX", "fix": "Fixed indentation"},
-            {"file": "tests/test_api.py", "line": 15, "type": "LOGIC", "fix": "Updated assertion"},
-        ]
+        # Mapping graph nodes to user-friendly steps with real progress percentages
+        node_map = {
+            "clone_repo": ("Cloning repository to local sandbox...", 5),
+            "run_tests": ("Executing Dockerized tests...", 20),
+            "failure_classifier": ("AI diagnosing test failures...", 35),
+            "fix_generator": ("AI generating code fixes...", 50),
+            "fix_validator": ("Performing AST syntax validation...", 60),
+            "git_committer": ("AI committing verified fixes...", 70),
+            "push_branch": ("Pushing fix to remote...", 80),
+            "monitor_ci": ("Polling CI/CD status...", 90),
+            "retry_decision": ("Deciding on next steps...", 95),
+            "repo_analyzer": ("Analyzing repository structure...", 5),
+            "test_discovery": ("Discovering test files...", 10),
+            "test_executor": ("Executing tests...", 30),
+            "reflection_agent": ("Reflecting on the fix...", 85),
+        }
+
+        # Stream execution
+        merged_state = dict(initial_state)
+        async for event in graph.astream(initial_state):
+            # event is a dict mapping node_name -> state_update
+            for node_name, state_update in event.items():
+                step_info = node_map.get(node_name, (f"Processing: {node_name}...", 50))
+                if isinstance(state_update, dict):
+                    merged_state.update(state_update)
+                else:
+                    # Handle non-dict state updates (e.g., final result)
+                    state_update = {"result": str(state_update)}
+                
+                # Update global run state
+                pipeline_runs[run_id]["current_step"] = step_info[0]
+                pipeline_runs[run_id]["progress"] = step_info[1]
+                
+                # Safely get iteration from state_update
+                iteration_val = None
+                if isinstance(state_update, dict):
+                    iteration_val = state_update.get("iteration")
+                if iteration_val is not None:
+                    pipeline_runs[run_id]["iteration"] = iteration_val
+                
+                # Merge logs
+                new_logs = []
+                if isinstance(state_update, dict):
+                    new_logs = state_update.get("logs", [])
+                for log in new_logs:
+                    if log not in pipeline_logs[run_id]:
+                        pipeline_logs[run_id].append(f"[{datetime.utcnow().isoformat()}] {log}")
+                
+                # Merge failures/fixes if present in ANY node's state (using latest available)
+                if isinstance(state_update, dict):
+                    if "failures" in state_update:
+                        pipeline_runs[run_id]["failures_detected"] = state_update["failures"]
+                        pipeline_runs[run_id]["total_failures"] = len(state_update["failures"])
+                    
+                    if "applied_fixes" in state_update:
+                        pipeline_runs[run_id]["fixes_applied"] = state_update["applied_fixes"]
+                        pipeline_runs[run_id]["total_fixes"] = len(state_update["applied_fixes"])
+
+                # Send WebSocket update
+                update = {
+                    "type": "pipeline_update",
+                    "run_id": run_id,
+                    "status": "RUNNING",
+                    "progress": step_info[1],
+                    "current_step": step_info[0],
+                    "iteration": state_update.get("iteration", pipeline_runs[run_id].get("iteration", 0)),
+                    "failures_detected": pipeline_runs[run_id].get("failures_detected", []),
+                    "fixes_applied": pipeline_runs[run_id].get("fixes_applied", []),
+                    "logs": pipeline_logs.get(run_id, [])[-5:]
+                }
+                await manager.send_to_run(run_id, update)
+
+        # Final terminal state check without re-running the graph
+        final_state = merged_state
+        total_time = int((datetime.utcnow() - start_time).total_seconds())
         
-        for i, (step, progress) in enumerate(steps):
-            # Update run state
-            pipeline_runs[run_id]["progress"] = progress
-            pipeline_runs[run_id]["current_step"] = step
-            pipeline_runs[run_id]["iteration"] = i + 1
-            
-            # Add log
-            log_msg = f"[{datetime.utcnow().isoformat()}] {step}"
-            if run_id in pipeline_logs:
-                pipeline_logs[run_id].append(log_msg)
-            
-            # Add failures in analysis step
-            if i == 1 and simulated_failures:
-                pipeline_runs[run_id]["failures_detected"] = simulated_failures
-                pipeline_runs[run_id]["total_failures"] = len(simulated_failures)
-            
-            # Add fixes in generation step
-            if i == 3 and simulated_fixes:
-                pipeline_runs[run_id]["fixes_applied"] = simulated_fixes[:1]
-                pipeline_runs[run_id]["total_fixes"] = 1
-            
-            # Send WebSocket update
-            update = {
-                "type": "pipeline_update",
-                "run_id": run_id,
-                "status": "RUNNING",
-                "progress": progress,
-                "current_step": step,
-                "iteration": i + 1,
-                "failures_detected": pipeline_runs[run_id].get("failures_detected", []),
-                "fixes_applied": pipeline_runs[run_id].get("fixes_applied", []),
-                "logs": pipeline_logs.get(run_id, [])[-5:]
-            }
-            await manager.send_to_run(run_id, update)
-            
-            # Simulate work
-            await asyncio.sleep(1.5)
+        status = "COMPLETED"
+        final_msg = "Pipeline completed successfully"
+        final_status = final_state.get("final_status")
+        if not final_status:
+            final_status = "passed" if final_state.get("ci_status") == "passed" else "failed"
+        final_score = 100.0 if final_status in ["passed", "fixed"] else 0.0
         
-        # Calculate final stats
-        end_time = datetime.utcnow()
-        total_time = int((end_time - start_time).total_seconds())
+        if final_status == "failed":
+            status = "FAILED"
+            final_msg = "Max retries exceeded without fix"
         
-        # Update final status
+        # Update final run record
         pipeline_runs[run_id].update({
-            "status": "COMPLETED",
+            "status": status,
             "progress": 100,
-            "current_step": "Pipeline completed successfully",
-            "iterations_used": len(steps),
-            "score": 92.5,
+            "current_step": final_msg,
+            "iterations_used": final_state.get("iteration", 1),
+            "score": final_score,
             "total_time_seconds": total_time,
-            "ci_status": "PASSED"
+            "ci_status": final_state.get("ci_status", "UNKNOWN").upper()
         })
         
         # Send final update
-        final_update = {
+        await manager.send_to_run(run_id, {
             "type": "pipeline_complete",
             "run_id": run_id,
-            "status": "COMPLETED",
+            "status": status,
             "progress": 100,
-            "current_step": "Pipeline completed successfully",
-            "score": 92.5,
+            "current_step": final_msg,
+            "score": final_score,
             "total_time_seconds": total_time,
-            "total_failures": 2,
-            "total_fixes": 1,
-            "iterations_used": len(steps),
-            "ci_status": "PASSED"
-        }
-        await manager.send_to_run(run_id, final_update)
+            "total_failures": pipeline_runs[run_id].get("total_failures", 0),
+            "total_fixes": pipeline_runs[run_id].get("total_fixes", 0),
+            "iterations_used": final_state.get("iteration", 1),
+            "ci_status": pipeline_runs[run_id].get("ci_status")
+        })
+        
         
     except Exception as e:
         # Handle errors
@@ -534,4 +605,31 @@ async def get_user_profile():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import socket
+
+    # Allow configuring port via environment variables `PORT` or `BACKEND_PORT`.
+    # If the requested port is in use, try the next ports up to a limit.
+    default_port = int(os.environ.get("PORT") or os.environ.get("BACKEND_PORT") or 8000)
+    max_tries = 20
+    port = default_port
+
+    for attempt in range(max_tries):
+        # Check whether the port is free by attempting to connect to it.
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                in_use = s.connect_ex(("127.0.0.1", port)) == 0
+        except Exception:
+            # If connect_ex fails for any reason, assume port may be in use and try next
+            in_use = True
+
+        if in_use:
+            print(f"Port {port} appears in use, trying port {port + 1}...")
+            port += 1
+            continue
+
+        print(f"Starting server on port {port}")
+        uvicorn.run(app, host="0.0.0.0", port=port)
+        break
+    else:
+        print(f"Failed to bind a port in range {default_port}-{port}")

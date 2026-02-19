@@ -9,5 +9,7 @@ def run(state):
     """Discover tests in the repository."""
     # Placeholder: discover tests in the repo
     state["test_files"] = []
-    state["logs"].append("Test discovery completed")
+    logs = list(state.get("logs") or [])
+    logs.append("Test discovery completed")
+    state["logs"] = logs
     return state

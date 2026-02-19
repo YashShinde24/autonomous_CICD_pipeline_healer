@@ -29,5 +29,7 @@ def run(state):
     correction = reflect(classified_failure, previous_patch, new_error)
     
     state["reflection"] = correction
-    state["logs"].append("Reflection agent generated correction")
+    logs = list(state.get("logs") or [])
+    logs.append("Reflection agent generated correction")
+    state["logs"] = logs
     return state

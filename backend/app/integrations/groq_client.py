@@ -1,7 +1,8 @@
 """
-groq_client.py
+OpenRouter AI Client
 
-Client for interacting with Groq API for AI-powered code analysis and fix generation.
+Client for interacting with OpenRouter AI API for AI-powered code analysis and fix generation.
+OpenRouter provides free access to many LLM models.
 """
 
 import logging
@@ -10,26 +11,29 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Default Groq API endpoint
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+# OpenRouter API endpoint
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Default model - using free models
+DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct"
 
 
-def get_groq_api_key() -> str:
-    """Retrieve the Groq API key from environment variables."""
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise ValueError("GROQ_API_KEY environment variable is not set")
-    return api_key
+def get_openrouter_api_key() -> Optional[str]:
+    """Retrieve the OpenRouter API key from environment variables.
 
-
-def call_groq(system_prompt: str, user_prompt: str, model: str = "llama-3.1-70b-versatile") -> str:
+    Returns None if not configured so callers can fall back to a mock response.
     """
-    Call the Groq API with a system prompt and user prompt.
+    return os.environ.get("OPENROUTER_API_KEY")
+
+
+def call_ai(system_prompt: str, user_prompt: str, model: str = DEFAULT_MODEL) -> str:
+    """
+    Call the OpenRouter API with a system prompt and user prompt.
     
     Args:
         system_prompt: The system instructions that define the AI's role and behavior.
         user_prompt: The user's input/query.
-        model: The Groq model to use (default: llama-3.1-70b-versatile).
+        model: The OpenRouter model to use (default: meta-llama/llama-3.1-8b-instruct).
     
     Returns:
         The model's response as a string.
@@ -41,11 +45,17 @@ def call_groq(system_prompt: str, user_prompt: str, model: str = "llama-3.1-70b-
     try:
         import requests
         
-        api_key = get_groq_api_key()
-        
+        api_key = get_openrouter_api_key()
+
+        if not api_key:
+            logger.warning("OPENROUTER_API_KEY not set — returning mock response")
+            return f"Mock response to: {user_prompt[:100]}..."
+
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/deepankarokade/autonomous-cicd-pipeline-healer",
+            "X-Title": "CI/CD Pipeline Healer"
         }
         
         payload = {
@@ -59,7 +69,7 @@ def call_groq(system_prompt: str, user_prompt: str, model: str = "llama-3.1-70b-
         }
         
         response = requests.post(
-            GROQ_API_URL,
+            OPENROUTER_API_URL,
             headers=headers,
             json=payload,
             timeout=60
@@ -70,12 +80,25 @@ def call_groq(system_prompt: str, user_prompt: str, model: str = "llama-3.1-70b-
         result = response.json()
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         
-        logger.info("Groq API call successful")
+        logger.info("OpenRouter AI API call successful")
         return content
         
     except ImportError:
         logger.warning("requests library not available, returning mock response")
         return f"Mock response to: {user_prompt[:100]}..."
     except Exception as exc:
-        logger.error("Groq API call failed: %s", exc)
+        logger.error("OpenRouter AI API call failed: %s", exc)
         raise
+
+
+# Backward compatibility - keep groq functions as aliases
+def get_groq_api_key():
+    """Backward compatibility - now uses OpenRouter"""
+    return get_openrouter_api_key()
+
+
+def call_groq(system_prompt: str, user_prompt: str, model: str = DEFAULT_MODEL) -> str:
+    """
+    Backward compatibility - now calls OpenRouter API
+    """
+    return call_ai(system_prompt, user_prompt, model)
