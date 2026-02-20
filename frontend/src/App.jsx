@@ -3,7 +3,12 @@ import { supabase } from './supabase'
 import './App.css'
 
 // API Base URL (default to the backend port chosen during local startup)
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002'
+// For production: set VITE_API_URL in your .env file or leave empty to use relative URLs
+const API_URL = (() => {
+  const envUrl = import.meta.env.VITE_API_URL
+  // If explicitly set, use it; otherwise use empty string for relative URLs
+  return envUrl || ''
+})()
 
 // ============== API Service ==============
 const api = {
@@ -52,11 +57,16 @@ const api = {
   },
 
   // Create and start a new pipeline run
-  async createRun(repoUrl, branch = 'main') {
+  async createRun(repoUrl, teamName, teamLeader, branch = 'main') {
     const res = await fetch(`${API_URL}/api/runs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo_url: repoUrl, branch })
+      body: JSON.stringify({ 
+        repo_url: repoUrl,
+        team_name: teamName,
+        team_leader: teamLeader,
+        branch 
+      })
     })
     return res.json()
   },
@@ -95,8 +105,10 @@ function useWebSocket(runId) {
     if (!runId) return
 
     // Connect to WebSocket
-    const wsProtocol = API_URL.startsWith('https') ? 'wss' : 'ws'
-    const wsUrl = `${wsProtocol}://${API_URL.replace(/^https?:\/\//, '')}/ws`
+    // For relative URLs (production), use current host's protocol
+    const wsProtocol = API_URL.startsWith('https') ? 'wss' : (API_URL.startsWith('http') ? 'ws' : (window.location.protocol === 'https:' ? 'wss' : 'ws'))
+    const wsHost = API_URL.replace(/^https?:\/\//, '') || window.location.host
+    const wsUrl = `${wsProtocol}://${wsHost}/ws`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -151,12 +163,16 @@ function App() {
   // Pipeline state
   const [showPipelineModal, setShowPipelineModal] = useState(false)
   const [repoUrl, setRepoUrl] = useState('')
+  const [teamName, setTeamName] = useState('')
+  const [teamLeader, setTeamLeader] = useState('')
   const [branch, setBranch] = useState('main')
   const [currentRun, setCurrentRun] = useState(null)
   const [runProgress, setRunProgress] = useState(null)
   const [pipelineLogs, setPipelineLogs] = useState([])
   const [pipelineRuns, setPipelineRuns] = useState([])
   const [isRunning, setIsRunning] = useState(false)
+  const [runStartTime, setRunStartTime] = useState(null)
+  const [runSummary, setRunSummary] = useState(null)
 
   // WebSocket for real-time updates
   const { updates, connected } = useWebSocket(currentRun?.id)
@@ -178,6 +194,18 @@ function App() {
         setPipelineLogs(latest.logs || [])
       } else if (latest.type === 'pipeline_complete') {
         setIsRunning(false)
+        const totalTime = runStartTime ? Date.now() - runStartTime : (latest.total_time_seconds * 1000)
+        setRunSummary({
+          repoUrl: latest.repo_url || repoUrl,
+          teamName: latest.team_name || teamName,
+          teamLeader: latest.team_leader || teamLeader,
+          branch: latest.branch || branch,
+          status: latest.status,
+          score: latest.score,
+          totalTimeMs: totalTime,
+          totalFailures: latest.total_failures || 0,
+          totalFixes: latest.total_fixes || 0,
+        })
         setRunProgress({
           status: latest.status,
           progress: latest.progress,
@@ -313,8 +341,9 @@ function App() {
     if (!repoUrl) return
 
     setLoading(true)
+    setRunStartTime(Date.now())
     try {
-      const run = await api.createRun(repoUrl, branch)
+      const run = await api.createRun(repoUrl, teamName, teamLeader, branch)
       setCurrentRun(run)
       setIsRunning(true)
       setPipelineLogs(run.logs || [])
@@ -337,6 +366,16 @@ function App() {
     if (minutes < 60) return `${minutes} min ago`
     if (hours < 24) return `${hours} hours ago`
     return `${Math.floor(hours / 24)} days ago`
+  }
+
+  const formatDuration = (ms) => {
+    const seconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}s`
+    }
+    return `${seconds}s`
   }
 
   // Login Screen
@@ -602,32 +641,68 @@ function App() {
             </section>
           )}
 
-          {/* Completed Pipeline Results */}
-          {!isRunning && runProgress?.score && (
-            <section className="pipeline-results">
-              <div className="results-card glass-card">
-                <div className="results-header">
-                  <span className="material-symbols-outlined success-icon">check_circle</span>
-                  <h3>Pipeline Completed</h3>
+          {/* Run Summary Card - Shows after completion */}
+          {!isRunning && runSummary && (
+            <section className="run-summary">
+              <div className="summary-card glass-card">
+                <div className="summary-header">
+                  <h3><span className="material-symbols-outlined">assessment</span>Run Summary</h3>
+                  <div className={`status-badge-large ${runSummary.status.toLowerCase()}`}>
+                    {runSummary.status === 'PASSED' ? (
+                      <><span className="material-symbols-outlined">check_circle</span>PASSED</>
+                    ) : (
+                      <><span className="material-symbols-outlined">cancel</span>FAILED</>
+                    )}
+                  </div>
                 </div>
 
-                <div className="results-grid">
-                  <div className="result-item">
-                    <span className="result-label">Score</span>
-                    <span className="result-value success">{runProgress.score}%</span>
+                <div className="summary-content">
+                  <div className="summary-row">
+                    <div className="summary-item">
+                      <span className="summary-label">Repository URL</span>
+                      <span className="summary-value url">{runSummary.repoUrl}</span>
+                    </div>
                   </div>
-                  <div className="result-item">
-                    <span className="result-label">Time</span>
-                    <span className="result-value">{runProgress.total_time_seconds}s</span>
+
+                  <div className="summary-row two-cols">
+                    <div className="summary-item">
+                      <span className="summary-label">Team Name</span>
+                      <span className="summary-value">{runSummary.teamName}</span>
+                    </div>
+                    <div className="summary-item">
+                      <span className="summary-label">Team Leader</span>
+                      <span className="summary-value">{runSummary.teamLeader}</span>
+                    </div>
                   </div>
-                  <div className="result-item">
-                    <span className="result-label">Failures</span>
-                    <span className="result-value">{runProgress.total_failures}</span>
+
+                  <div className="summary-row">
+                    <div className="summary-item">
+                      <span className="summary-label">Branch Created</span>
+                      <span className="summary-value branch">{runSummary.teamName?.toUpperCase().replace(/\s+/g, '_')}_{runSummary.teamLeader?.toUpperCase().replace(/\s+/g, '_')}_AI_Fix</span>
+                    </div>
                   </div>
-                  <div className="result-item">
-                    <span className="result-label">Fixes</span>
-                    <span className="result-value success">{runProgress.total_fixes}</span>
+
+                  <div className="summary-stats">
+                    <div className="stat-box">
+                      <span className="stat-number">{runSummary.totalFailures}</span>
+                      <span className="stat-label">Failures Detected</span>
+                    </div>
+                    <div className="stat-box success">
+                      <span className="stat-number">{runSummary.totalFixes}</span>
+                      <span className="stat-label">Fixes Applied</span>
+                    </div>
+                    <div className="stat-box">
+                      <span className="stat-number">{formatDuration(runSummary.totalTimeMs)}</span>
+                      <span className="stat-label">Total Time</span>
+                    </div>
                   </div>
+                </div>
+
+                <div className="summary-actions">
+                  <button className="btn-outline" onClick={() => setRunSummary(null)}>
+                    <span className="material-symbols-outlined">refresh</span>
+                    New Analysis
+                  </button>
                 </div>
               </div>
             </section>
@@ -848,7 +923,7 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowPipelineModal(false)}>
           <div className="modal glass-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3><span className="material-symbols-outlined">rocket_launch</span>Run Pipeline</h3>
+              <h3><span className="material-symbols-outlined">rocket_launch</span>Analyze Repository</h3>
               <button className="close-btn" onClick={() => setShowPipelineModal(false)}>
                 <span className="material-symbols-outlined">close</span>
               </button>
@@ -856,12 +931,32 @@ function App() {
 
             <form onSubmit={handleStartPipeline}>
               <div className="form-group">
-                <label>Repository URL</label>
+                <label>GitHub Repository URL</label>
                 <input
                   type="text"
                   placeholder="https://github.com/owner/repo"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Team Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g., RIFT ORGANISERS"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Team Leader Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Saiyam Kumar"
+                  value={teamLeader}
+                  onChange={(e) => setTeamLeader(e.target.value)}
                   required
                 />
               </div>
@@ -877,7 +972,11 @@ function App() {
               <div className="modal-actions">
                 <button type="button" className="btn-outline" onClick={() => setShowPipelineModal(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={loading}>
-                  {loading ? 'Starting...' : 'Start Pipeline'}
+                  {loading ? (
+                    <><span className="loading-spinner"></span>Analyzing...</>
+                  ) : (
+                    <><span className="material-symbols-outlined">play_arrow</span>Run Agent</>
+                  )}
                 </button>
               </div>
             </form>
